@@ -8,126 +8,182 @@ mod frame_provider;
 use frame_provider::FrameProvider;
 
 use image::{ImageBuffer, RgbImage, RgbaImage};
-use pixels::{Pixels, SurfaceTexture};
-use std::collections::HashMap;
-use std::sync::Arc;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::Window;
+use egui::{emath, vec2, Color32, Context, Frame, Pos2, Rect, Sense, Stroke, Ui, Window};
+use serde::{Deserialize, Serialize};
 
-const DEFAULT_WIDTH: u32 = 320;
-const DEFAULT_HEIGHT: u32 = 240;
-
-
-struct ApplicationState {
-	cached_video_frames: HashMap<u64, RgbImage>,
-	video_frames: FrameProvider
+//#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+//#[cfg_attr(feature = "serde", serde(default))]
+#[derive(Serialize, Deserialize)]
+pub struct AutoRoto {
+	lines: Vec<Vec<Pos2>>, 	// in 0-1 normalized coordinates
+	stroke: Stroke,
 }
 
-struct Display {
-	window: Arc<Window>,
-	pixels: Pixels,
-}
-
-fn _main(event_loop: EventLoop<()>) {
-	let mut display: Option<Display> = None;
-
-	let mut app_state = ApplicationState::new();
-
-	let res = event_loop.run(|event, elwt| {
-		elwt.set_control_flow(ControlFlow::Wait);
-		match event {
-			Event::Resumed => {
-				let raw_window = elwt.create_window(Default::default()).unwrap();
-				let window = Arc::new(raw_window);
-				let pixels = {
-					let window_size = window.inner_size();
-					let surface_texture = SurfaceTexture::new(
-						window_size.width,
-						window_size.height,
-						&window,
-					);
-					Pixels::new(DEFAULT_WIDTH, DEFAULT_HEIGHT, surface_texture).unwrap()
-				};
-				window.request_redraw();
-				display = Some(Display { window, pixels });
-			}
-			Event::Suspended => {
-				display = None;
-			}
-			Event::WindowEvent {
-				event: WindowEvent::RedrawRequested,
-				..
-			} => {
-				if let Some(display) = &mut display {
-					app_state.draw(display.pixels.frame_mut());
-					display.pixels.render().unwrap();
-					display.window.request_redraw();
-				}
-			}
-			_ => {}
-		}
-		if display.is_some() {
-			app_state.update();
-		}
-	});
-	res.unwrap();
-}
-
-impl ApplicationState {
-	/// Create a new `World` instance that can draw a moving box.
-	fn new() -> Self {
+impl Default for AutoRoto {
+	fn default() -> Self {
 		Self {
-			cached_video_frames: Default::default(),
-			video_frames: FrameProvider::NullFrameProvider,
-		}
-	}
-
-	fn update(&mut self) {
-
-	}
-
-	/// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-	fn draw(&self, frame: &mut [u8]) {
-		// Clear previous frame.
-		frame.fill(0);
-
-		for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-			let x = (i % DEFAULT_WIDTH as usize) as i16;
-			let y = (i / DEFAULT_WIDTH as usize) as i16;
-
-			let inside_the_box = false;
-
-			let rgba = if inside_the_box {
-				[0x5e, 0x48, 0xe8, 0xff]
-			} else {
-				[0x48, 0xb2, 0xe8, 0xff]
-			};
-
-			pixel.copy_from_slice(&rgba);
+			lines: Default::default(),
+			stroke: Stroke::new(1.0, Color32::from_rgb(25, 200, 100)),
 		}
 	}
 }
 
-#[allow(dead_code)]
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app: AndroidApp) {
-	use winit::platform::android::EventLoopBuilderExtAndroid;
-	android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Info));
-	let event_loop = EventLoopBuilder::new().with_android_app(app).build();
-	log::info!("Hello from android!");
-	_main(event_loop);
+impl AutoRoto {
+	pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+		// This is also where you can customize the look and feel of egui using
+		// `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
+
+		// Load previous app state (if any).
+		// Note that you must enable the `persistence` feature for this to work.
+		if let Some(storage) = cc.storage {
+			return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+		}
+
+		Default::default()
+	}
+
+	pub fn ui_control(&mut self, ui: &mut egui::Ui) -> egui::Response {
+		ui.horizontal(|ui| {
+			ui.label("Stroke:");
+			ui.add(&mut self.stroke);
+			ui.separator();
+			if ui.button("Clear Painting").clicked() {
+				self.lines.clear();
+			}
+		})
+			.response
+	}
+
+	pub fn ui_content(&mut self, ui: &mut Ui) -> egui::Response {
+		let (mut response, painter) =
+			ui.allocate_painter(ui.available_size_before_wrap(), Sense::drag());
+
+		let to_screen = emath::RectTransform::from_to(
+			Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),
+			response.rect,
+		);
+		let from_screen = to_screen.inverse();
+
+		if self.lines.is_empty() {
+			self.lines.push(vec![]);
+		}
+
+		let current_line = self.lines.last_mut().unwrap();
+
+		if let Some(pointer_pos) = response.interact_pointer_pos() {
+			let canvas_pos = from_screen * pointer_pos;
+			if current_line.last() != Some(&canvas_pos) {
+				current_line.push(canvas_pos);
+				response.mark_changed();
+			}
+		} else if !current_line.is_empty() {
+			self.lines.push(vec![]);
+			response.mark_changed();
+		}
+
+		let shapes = self
+			.lines
+			.iter()
+			.filter(|line| line.len() >= 2)
+			.map(|line| {
+				let points: Vec<Pos2> = line.iter().map(|p| to_screen * *p).collect();
+				egui::Shape::line(points, self.stroke)
+			});
+
+		painter.extend(shapes);
+
+		response
+	}
+
+	fn ui(&mut self, ui: &mut Ui) {
+		ui.vertical_centered(|ui| {
+			//ui.add(crate::egui_github_link_file!());
+		});
+		self.ui_control(ui);
+		ui.label("Paint with your mouse/touch!");
+		Frame::canvas(ui.style()).show(ui, |ui| {
+			self.ui_content(ui);
+		});
+	}
 }
 
-#[allow(dead_code)]
-#[cfg(not(target_os = "android"))]
-fn main() {
-	env_logger::builder()
-		.filter_level(log::LevelFilter::Info) // Default Log Level
-		.parse_default_env()
-		.init();
-	let event_loop = EventLoop::new().unwrap();
-	log::info!("Hello from desktop!");
-	_main(event_loop);
+impl eframe::App for AutoRoto {
+	fn save(&mut self, storage: &mut dyn eframe::Storage) {
+		eframe::set_value(storage, eframe::APP_KEY, self);
+	}
+
+	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+		// Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
+		// For inspiration and more examples, go to https://emilk.github.io/egui
+
+		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+			// The top panel is often a good place for a menu bar:
+
+			egui::menu::bar(ui, |ui| {
+				// NOTE: no File->Quit on web pages!
+				let is_web = cfg!(target_arch = "wasm32");
+				if !is_web {
+					ui.menu_button("File", |ui| {
+						if ui.button("Quit").clicked() {
+							ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+						}
+					});
+					ui.add_space(16.0);
+				}
+
+				egui::widgets::global_theme_preference_buttons(ui);
+			});
+		});
+
+		egui::CentralPanel::default().show(ctx, |ui| {
+			// The central panel the region left after adding TopPanel's and SidePanel's
+			ui.heading("eframe template");
+
+			ui.horizontal(|ui| {
+				ui.label("Write something: ");
+				//ui.text_edit_singleline(&mut self.label);
+			});
+
+			self.ui(ui);
+
+			//ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
+			//if ui.button("Increment").clicked() {
+			//	self.value += 1.0;
+			//}
+
+			ui.separator();
+
+			ui.add(egui::github_link_file!(
+                "https://github.com/emilk/eframe_template/blob/main/",
+                "Source code."
+            ));
+
+			ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+				//powered_by_egui_and_eframe(ui);
+				egui::warn_if_debug_build(ui);
+			});
+		});
+	}
+}
+
+fn main() -> eframe::Result {
+	env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+
+	let native_options = eframe::NativeOptions {
+		viewport: egui::ViewportBuilder::default()
+			.with_inner_size([400.0, 300.0])
+			.with_min_inner_size([300.0, 220.0]),
+		/*
+			.with_icon(
+				eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
+					.expect("Failed to load icon"),
+			),
+		*/
+		..Default::default()
+	};
+	eframe::run_native(
+		"AutoRoto",
+		native_options,
+		Box::new(|cc| Ok(Box::new(AutoRoto::new(cc)))),
+	)
 }
