@@ -5,6 +5,7 @@
 use winit::platform::android::activity::AndroidApp;
 
 mod frame_provider;
+use frame_provider::FrameProvider;
 
 use image::{ImageBuffer, RgbImage, RgbaImage};
 use pixels::{Pixels, SurfaceTexture};
@@ -20,7 +21,7 @@ const DEFAULT_HEIGHT: u32 = 240;
 
 struct ApplicationState {
 	cached_video_frames: HashMap<u64, RgbImage>,
-	video_frames: frame_provider::FrameProvider
+	video_frames: FrameProvider
 }
 
 struct Display {
@@ -31,7 +32,7 @@ struct Display {
 fn _main(event_loop: EventLoop<()>) {
 	let mut display: Option<Display> = None;
 
-	let mut world = ApplicationState::new();
+	let mut app_state = ApplicationState::new();
 
 	let res = event_loop.run(|event, elwt| {
 		elwt.set_control_flow(ControlFlow::Wait);
@@ -59,7 +60,7 @@ fn _main(event_loop: EventLoop<()>) {
 				..
 			} => {
 				if let Some(display) = &mut display {
-					world.draw(display.pixels.frame_mut());
+					app_state.draw(display.pixels.frame_mut());
 					display.pixels.render().unwrap();
 					display.window.request_redraw();
 				}
@@ -67,7 +68,7 @@ fn _main(event_loop: EventLoop<()>) {
 			_ => {}
 		}
 		if display.is_some() {
-			world.update();
+			app_state.update();
 		}
 	});
 	res.unwrap();
@@ -77,38 +78,25 @@ impl ApplicationState {
 	/// Create a new `World` instance that can draw a moving box.
 	fn new() -> Self {
 		Self {
-			box_x: 24,
-			box_y: 16,
-			velocity_x: 1,
-			velocity_y: 1,
+			cached_video_frames: Default::default(),
+			video_frames: FrameProvider::NullFrameProvider,
 		}
 	}
 
-	/// Update the `World` internal state; bounce the box around the screen.
 	fn update(&mut self) {
-		if self.box_x <= 0 || self.box_x + 64 > DEFAULT_WIDTH as i16 {
-			self.velocity_x *= -1;
-		}
-		if self.box_y <= 0 || self.box_y + 64 > DEFAULT_HEIGHT as i16 {
-			self.velocity_y *= -1;
-		}
 
-		self.box_x += self.velocity_x;
-		self.box_y += self.velocity_y;
 	}
 
-	/// Draw the `World` state to the frame buffer.
-	///
 	/// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
 	fn draw(&self, frame: &mut [u8]) {
+		// Clear previous frame.
+		frame.fill(0);
+
 		for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
 			let x = (i % DEFAULT_WIDTH as usize) as i16;
 			let y = (i / DEFAULT_WIDTH as usize) as i16;
 
-			let inside_the_box = x >= self.box_x
-				&& x < self.box_x + 64
-				&& y >= self.box_y
-				&& y < self.box_y + 64;
+			let inside_the_box = false;
 
 			let rgba = if inside_the_box {
 				[0x5e, 0x48, 0xe8, 0xff]

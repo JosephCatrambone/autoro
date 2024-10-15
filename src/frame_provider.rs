@@ -56,7 +56,7 @@ pub fn get_frame(fp: &FrameProvider, frame_number: u64) -> RgbImage {
 				}
 			}
 			*/
-			let img = ImageReader::open(&file_list[frame_number as usize]).expect("Frame with file {} could not be opened. Missing?").decode()?;
+			let img = ImageReader::open(&file_list[frame_number as usize]).expect("Frame with file {} could not be opened. Missing?").decode().expect("Failed to load image.");
 			//let img2 = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?;
 			img.into_rgb8()
 		},
