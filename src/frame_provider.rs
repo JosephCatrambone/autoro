@@ -1,7 +1,8 @@
 use glob::glob;
-use image::{ImageReader, RgbImage};
+use image::{DynamicImage, GenericImageView, ImageBuffer, ImageReader, RgbaImage, RgbImage};
 use rfd::FileDialog;
 use std::path::PathBuf;
+use eframe::epaint::{Color32, ColorImage};
 
 // This is going to have to become a trait or something.
 pub enum FrameProvider {
@@ -65,3 +66,13 @@ pub fn get_frame(fp: &FrameProvider, frame_number: u64) -> RgbImage {
 		},
 	}
 }
+
+pub fn image_to_egui_image(frame: &RgbaImage) -> ColorImage {
+	let size = [frame.width() as usize, frame.height() as usize];
+	let mut pixels = Vec::with_capacity((3*frame.width()*frame.height()) as usize);
+	for p in frame.pixels() {
+		pixels.push(Color32::from_rgba_unmultiplied(p.0[0], p.0[1], p.0[2], p.0[3]));
+	}
+	ColorImage { size, pixels }
+}
+

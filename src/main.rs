@@ -1,45 +1,111 @@
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
+use std::cell::Cell;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
-
 mod frame_provider;
-use frame_provider::FrameProvider;
 
+use egui::{emath, vec2, Color32, ColorImage, Context, Frame, Image, Pos2, Rect, Sense, Stroke, Ui, Window, TextureFilter, TextureHandle, TextureOptions};
 use image::{ImageBuffer, RgbImage, RgbaImage};
-use egui::{emath, vec2, Color32, Context, Frame, Pos2, Rect, Sense, Stroke, Ui, Window};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::default::Default;
+use std::sync::Arc;
+
+use frame_provider::{FrameProvider, get_frame, get_frame_provider, image_to_egui_image};
+
+// Huge props to egui-video which I could not use but was instrumental to figuring this out.
+// Look at https://github.com/n00kii/egui-video/blob/main/src/lib.rs for overlap.
 
 //#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 //#[cfg_attr(feature = "serde", serde(default))]
-#[derive(Serialize, Deserialize)]
 pub struct AutoRoto {
+	points: HashMap<usize, Vec<Pos2>>,  // frame number to list of positions in 0-1 normalized form.
 	lines: Vec<Vec<Pos2>>, 	// in 0-1 normalized coordinates
 	stroke: Stroke,
-}
 
-impl Default for AutoRoto {
-	fn default() -> Self {
-		Self {
-			lines: Default::default(),
-			stroke: Stroke::new(1.0, Color32::from_rgb(25, 200, 100)),
-		}
-	}
+	frame_provider: FrameProvider,
+	cached_frames: HashMap<usize, image::RgbaImage>,
+	current_frame: usize,
+
+	display_texture_options: TextureOptions,
+	display_texture_handle: TextureHandle,
+	display_texture_frame: usize, // The current image frame loaded into the texture.
 }
 
 impl AutoRoto {
 	pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+		egui_extras::install_image_loaders(&cc.egui_ctx);
+
 		// This is also where you can customize the look and feel of egui using
 		// `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
 		// Load previous app state (if any).
 		// Note that you must enable the `persistence` feature for this to work.
 		if let Some(storage) = cc.storage {
-			return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+			//return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
 		}
 
-		Default::default()
+		Self {
+			points: Default::default(),
+			lines: Default::default(),
+			stroke: Stroke::new(1.0, Color32::from_rgb(25, 200, 100)),
+			frame_provider: FrameProvider::NullFrameProvider,
+			cached_frames: Default::default(),
+			current_frame: 0,
+			display_texture_handle: cc.egui_ctx.load_texture("display_image", ColorImage::example(), TextureOptions::default()),
+			display_texture_options: TextureOptions::default(),
+			display_texture_frame: 0,
+		}
+	}
+
+	/// Create the [`egui::Image`] for the video frame.
+	fn generate_frame_image(&mut self, size: egui::Vec2) -> Image {
+		if self.current_frame != self.display_texture_frame {
+			if !self.cached_frames.contains_key(&self.current_frame) {
+				// insert
+			}
+
+			let cached_frame_ref = self.cached_frames.get(&self.current_frame).expect("CANNOT FETCH BACK FRAME JUST ADDED TO LIST.");
+
+			self.display_texture_handle.set(
+				image_to_egui_image(cached_frame_ref),
+				self.display_texture_options
+			);
+			self.display_texture_frame = self.current_frame;
+		}
+
+		Image::new(egui::load::SizedTexture::new(self.display_texture_handle.id(), size)).sense(Sense::click())
+	}
+
+	/// Draw the video frame with a specific rect (without controls).
+	fn render_frame(&mut self, ui: &mut Ui, size: egui::Vec2) -> egui::Response {
+		ui.add(self.generate_frame_image(size))
+	}
+
+	/// Draw the video frame (without controls).
+	fn render_frame_at(&mut self, ui: &mut Ui, rect: Rect) -> egui::Response {
+		ui.put(rect, self.generate_frame_image(rect.size()))
+	}
+
+	// Draw the current frame and all the points on top.
+	fn ui_current_frame(&mut self, ui: &mut Ui) -> egui::Response {
+		let (mut response, painter) =
+			ui.allocate_painter(ui.available_size_before_wrap(), Sense::drag());
+
+		response.mark_changed();
+		if !self.cached_frames.contains_key(&self.current_frame) {
+		}
+
+		//painter.image(self.display_texture_handle.id(), Rect {}, Rect::, Default::default());
+		self.render_frame(ui, egui::Vec2::new(0.0, 0.0));
+
+		response
+	}
+
+	pub fn ui_timeline(&mut self, ui: &mut Ui) -> egui::Response {
+		todo!()
 	}
 
 	pub fn ui_control(&mut self, ui: &mut egui::Ui) -> egui::Response {
@@ -95,41 +161,29 @@ impl AutoRoto {
 		response
 	}
 
-	fn ui(&mut self, ui: &mut Ui) {
-		ui.vertical_centered(|ui| {
-			//ui.add(crate::egui_github_link_file!());
-		});
-		self.ui_control(ui);
-		ui.label("Paint with your mouse/touch!");
-		Frame::canvas(ui.style()).show(ui, |ui| {
-			self.ui_content(ui);
-		});
-	}
-}
-
-impl eframe::App for AutoRoto {
-	fn save(&mut self, storage: &mut dyn eframe::Storage) {
-		eframe::set_value(storage, eframe::APP_KEY, self);
-	}
-
-	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+	fn draw_ui(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
 		// Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
 		// For inspiration and more examples, go to https://emilk.github.io/egui
 
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 			// The top panel is often a good place for a menu bar:
-
 			egui::menu::bar(ui, |ui| {
-				// NOTE: no File->Quit on web pages!
 				let is_web = cfg!(target_arch = "wasm32");
-				if !is_web {
-					ui.menu_button("File", |ui| {
-						if ui.button("Quit").clicked() {
-							ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+				ui.menu_button("File", |ui| {
+					if ui.button("Open Image Sequence").clicked() {
+						if let Some(files) = rfd::FileDialog::new().pick_files() {
+							self.frame_provider = FrameProvider::DirectoryFrameProvider(files);
+							self.current_frame = 0;
+							self.cached_frames.clear();
 						}
-					});
-					ui.add_space(16.0);
-				}
+						ui.close_menu();
+					}
+					//if ui.button("Open Video").clicked() {}
+					if ui.button("Quit").clicked() {
+						ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+					}
+				});
+				ui.add_space(16.0);
 
 				egui::widgets::global_theme_preference_buttons(ui);
 			});
@@ -144,8 +198,15 @@ impl eframe::App for AutoRoto {
 				//ui.text_edit_singleline(&mut self.label);
 			});
 
-			self.ui(ui);
 
+			ui.vertical_centered(|ui| {
+				//ui.add(crate::egui_github_link_file!());
+			});
+			self.ui_control(ui);
+			ui.label("Paint with your mouse/touch!");
+			Frame::canvas(ui.style()).show(ui, |ui| {
+				self.ui_content(ui);
+			});
 			//ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
 			//if ui.button("Increment").clicked() {
 			//	self.value += 1.0;
@@ -163,6 +224,16 @@ impl eframe::App for AutoRoto {
 				egui::warn_if_debug_build(ui);
 			});
 		});
+	}
+}
+
+impl eframe::App for AutoRoto {
+	fn save(&mut self, storage: &mut dyn eframe::Storage) {
+		//eframe::set_value(storage, eframe::APP_KEY, self);
+	}
+
+	fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+		self.draw_ui(ctx, frame);
 	}
 }
 
