@@ -93,18 +93,6 @@ impl AutoRoto {
 		ui.put(rect, self.generate_frame_image(rect.size()))
 	}
 
-	// Draw the current frame and all the points on top.
-	fn ui_current_frame(&self, ui: &mut Ui) -> egui::Response {
-		let (mut response, painter) =
-			ui.allocate_painter(ui.available_size_before_wrap(), Sense::drag());
-
-		response.mark_changed();
-		//painter.image(self.display_texture_handle.id(), Rect {}, Rect::, Default::default());
-		self.render_frame(ui, egui::Vec2::new(0.0, 0.0));
-
-		response
-	}
-
 	pub fn ui_timeline(&mut self, ui: &mut Ui) -> egui::Response {
 		todo!()
 	}
@@ -130,6 +118,7 @@ impl AutoRoto {
 
 		self.load_and_move_current_frame_to_gpu();
 		painter.image(self.display_texture_handle.id(), response.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+		//self.render_frame(ui, egui::Vec2::new(0.0, 0.0));
 
 		if self.lines.is_empty() {
 			self.lines.push(vec![]);
@@ -162,10 +151,7 @@ impl AutoRoto {
 		response
 	}
 
-	fn draw_ui(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-		// Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
-		// For inspiration and more examples, go to https://emilk.github.io/egui
-
+	fn draw_menu(&mut self, ctx: &Context) -> egui::Response {
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 			// The top panel is often a good place for a menu bar:
 			egui::menu::bar(ui, |ui| {
@@ -189,7 +175,15 @@ impl AutoRoto {
 
 				egui::widgets::global_theme_preference_buttons(ui);
 			});
-		});
+		}).response
+	}
+
+	fn update_and_draw(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+		// Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
+		// For inspiration and more examples, go to https://emilk.github.io/egui
+
+		self.draw_menu(ctx);
+		self.draw_controls(ctx);
 
 		egui::CentralPanel::default().show(ctx, |ui| {
 			// The central panel the region left after adding TopPanel's and SidePanel's
@@ -204,28 +198,35 @@ impl AutoRoto {
 			ui.vertical_centered(|ui| {
 				//ui.add(crate::egui_github_link_file!());
 			});
-			self.ui_control(ui);
-			ui.label("Paint with your mouse/touch!");
-			Frame::canvas(ui.style()).show(ui, |ui| {
-				self.draw_video_frame_with_overlay(ui);
-			});
-			//ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-			//if ui.button("Increment").clicked() {
-			//	self.value += 1.0;
-			//}
+
+			self.draw_video_frame_with_overlay(ui);
+			//Frame::canvas(ui.style()).show(ui, |ui| {
+			//	self.draw_video_frame_with_overlay(ui);
+			//});
 
 			ui.separator();
-
-			ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/main/",
-                "Source code."
-            ));
-
-			ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-				//powered_by_egui_and_eframe(ui);
-				egui::warn_if_debug_build(ui);
-			});
 		});
+	}
+
+	pub fn draw_controls(&mut self, ctx: &Context) -> egui::Response {
+		egui::TopBottomPanel::bottom("bottom_panel").resizable(true).show(ctx, |ui| {
+			ui.vertical(|ui|{
+				ui.horizontal_centered(|ui| {
+					if ui.button("<<").clicked() {
+						self.current_frame = 0;
+					}
+					if ui.button("<").clicked() || ctx.input(|i| i.key_released(egui::Key::A)) {
+						self.current_frame = self.current_frame.saturating_sub(1);
+					}
+					if ui.button(">").clicked() || ctx.input(|i| i.key_released(egui::Key::D)) {
+						self.current_frame = self.current_frame.saturating_add(1);
+					}
+					if ui.button(">>").clicked() {
+						self.current_frame = 0;
+					}
+				});
+			});
+		}).response
 	}
 }
 
@@ -235,7 +236,7 @@ impl eframe::App for AutoRoto {
 	}
 
 	fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
-		self.draw_ui(ctx, frame);
+		self.update_and_draw(ctx, frame);
 	}
 }
 
