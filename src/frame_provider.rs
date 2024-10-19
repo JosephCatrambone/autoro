@@ -34,7 +34,7 @@ pub fn get_frame_provider(file_sequence: bool) -> Option<FrameProvider> {
 	None
 }
 
-pub fn get_frame(fp: &FrameProvider, frame_number: u64) -> RgbImage {
+pub fn get_frame(fp: &FrameProvider, frame_number: u64) -> RgbaImage {
 	match fp {
 		FrameProvider::NullFrameProvider => {
 			let mut imgbuf = image::ImageBuffer::new(640, 480);
@@ -43,7 +43,7 @@ pub fn get_frame(fp: &FrameProvider, frame_number: u64) -> RgbImage {
 			for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
 				let r = (0.3 * x as f32) as u8;
 				let b = (0.3 * y as f32) as u8;
-				*pixel = image::Rgb([r, 0, b]);
+				*pixel = image::Rgba([r, 0, b, 255]);
 			}
 
 			imgbuf
@@ -59,7 +59,7 @@ pub fn get_frame(fp: &FrameProvider, frame_number: u64) -> RgbImage {
 			*/
 			let img = ImageReader::open(&file_list[frame_number as usize]).expect("Frame with file {} could not be opened. Missing?").decode().expect("Failed to load image.");
 			//let img2 = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?;
-			img.into_rgb8()
+			img.into_rgba8()
 		},
 		FrameProvider::MovieFrameProvider(movie_filename) => {
 			todo!()

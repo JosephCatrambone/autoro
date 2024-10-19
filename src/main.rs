@@ -60,11 +60,12 @@ impl AutoRoto {
 		}
 	}
 
-	/// Create the [`egui::Image`] for the video frame.
-	fn generate_frame_image(&mut self, size: egui::Vec2) -> Image {
+	fn load_and_move_current_frame_to_gpu(&mut self) {
 		if self.current_frame != self.display_texture_frame {
 			if !self.cached_frames.contains_key(&self.current_frame) {
-				// insert
+				// Load and cache the frame.
+				let img = get_frame(&self.frame_provider, self.current_frame as u64);
+				self.cached_frames.insert(self.current_frame, img);
 			}
 
 			let cached_frame_ref = self.cached_frames.get(&self.current_frame).expect("CANNOT FETCH BACK FRAME JUST ADDED TO LIST.");
@@ -75,29 +76,29 @@ impl AutoRoto {
 			);
 			self.display_texture_frame = self.current_frame;
 		}
+	}
 
+	/// Create the [`egui::Image`] for the video frame.
+	fn generate_frame_image(&self, size: egui::Vec2) -> Image {
 		Image::new(egui::load::SizedTexture::new(self.display_texture_handle.id(), size)).sense(Sense::click())
 	}
 
 	/// Draw the video frame with a specific rect (without controls).
-	fn render_frame(&mut self, ui: &mut Ui, size: egui::Vec2) -> egui::Response {
+	fn render_frame(&self, ui: &mut Ui, size: egui::Vec2) -> egui::Response {
 		ui.add(self.generate_frame_image(size))
 	}
 
 	/// Draw the video frame (without controls).
-	fn render_frame_at(&mut self, ui: &mut Ui, rect: Rect) -> egui::Response {
+	fn render_frame_at(&self, ui: &mut Ui, rect: Rect) -> egui::Response {
 		ui.put(rect, self.generate_frame_image(rect.size()))
 	}
 
 	// Draw the current frame and all the points on top.
-	fn ui_current_frame(&mut self, ui: &mut Ui) -> egui::Response {
+	fn ui_current_frame(&self, ui: &mut Ui) -> egui::Response {
 		let (mut response, painter) =
 			ui.allocate_painter(ui.available_size_before_wrap(), Sense::drag());
 
 		response.mark_changed();
-		if !self.cached_frames.contains_key(&self.current_frame) {
-		}
-
 		//painter.image(self.display_texture_handle.id(), Rect {}, Rect::, Default::default());
 		self.render_frame(ui, egui::Vec2::new(0.0, 0.0));
 
@@ -120,15 +121,15 @@ impl AutoRoto {
 			.response
 	}
 
-	pub fn ui_content(&mut self, ui: &mut Ui) -> egui::Response {
-		let (mut response, painter) =
-			ui.allocate_painter(ui.available_size_before_wrap(), Sense::drag());
+	fn draw_video_frame_with_overlay(&mut self, ui: &mut Ui) -> egui::Response {
+		let (mut response, painter) = ui.allocate_painter(ui.available_size_before_wrap(), Sense::drag());
 
-		let to_screen = emath::RectTransform::from_to(
-			Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),
-			response.rect,
-		);
+		let available_rect = Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions());
+		let to_screen = emath::RectTransform::from_to(available_rect, response.rect,);
 		let from_screen = to_screen.inverse();
+
+		self.load_and_move_current_frame_to_gpu();
+		painter.image(self.display_texture_handle.id(), response.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
 
 		if self.lines.is_empty() {
 			self.lines.push(vec![]);
@@ -175,6 +176,7 @@ impl AutoRoto {
 							self.frame_provider = FrameProvider::DirectoryFrameProvider(files);
 							self.current_frame = 0;
 							self.cached_frames.clear();
+							self.display_texture_frame += 1; // HACK: This forces a refresh of the GPU texture from the CPU texture.
 						}
 						ui.close_menu();
 					}
@@ -205,7 +207,7 @@ impl AutoRoto {
 			self.ui_control(ui);
 			ui.label("Paint with your mouse/touch!");
 			Frame::canvas(ui.style()).show(ui, |ui| {
-				self.ui_content(ui);
+				self.draw_video_frame_with_overlay(ui);
 			});
 			//ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
 			//if ui.button("Increment").clicked() {
