@@ -6,32 +6,49 @@ use std::cell::Cell;
 use winit::platform::android::activity::AndroidApp;
 mod frame_provider;
 
-use egui::{emath, vec2, Color32, ColorImage, Context, Frame, Image, Pos2, Rect, Sense, Stroke, Ui, Window, TextureFilter, TextureHandle, TextureOptions};
+use egui::{emath, vec2, Color32, ColorImage, Context, Frame, Image, Pos2, Rect, Sense, Stroke, Ui, Window, TextureFilter, TextureHandle, TextureOptions, pos2};
 use image::{ImageBuffer, RgbImage, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 
-use frame_provider::{FrameProvider, get_frame, get_frame_provider, image_to_egui_image};
-
+use crate::frame_provider::{FrameProvider, get_frame_provider, image_to_egui_image, NullFrameProvider, ImageSequenceFrameProvider};
 // Huge props to egui-video which I could not use but was instrumental to figuring this out.
 // Look at https://github.com/n00kii/egui-video/blob/main/src/lib.rs for overlap.
 
 //#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 //#[cfg_attr(feature = "serde", serde(default))]
 pub struct AutoRoto {
+	composition_properties: CompositionProperties,
+
 	points: HashMap<usize, Vec<Pos2>>,  // frame number to list of positions in 0-1 normalized form.
 	lines: Vec<Vec<Pos2>>, 	// in 0-1 normalized coordinates
 	stroke: Stroke,
 
-	frame_provider: FrameProvider,
+	frame_provider: Box<dyn FrameProvider>,
 	cached_frames: HashMap<usize, image::RgbaImage>,
 	current_frame: usize,
 
 	display_texture_options: TextureOptions,
 	display_texture_handle: TextureHandle,
 	display_texture_frame: usize, // The current image frame loaded into the texture.
+}
+
+pub struct CompositionProperties {
+	width: u64,
+	height: u64,
+	framerate: u32, // TODO: Support NTSC 29.97FPS. Ugh.
+}
+
+impl Default for CompositionProperties {
+	fn default() -> Self {
+		Self {
+			width: 0,
+			height: 0,
+			framerate: 60,
+		}
+	}
 }
 
 impl AutoRoto {
@@ -48,10 +65,11 @@ impl AutoRoto {
 		}
 
 		Self {
+			composition_properties: Default::default(),
 			points: Default::default(),
 			lines: Default::default(),
 			stroke: Stroke::new(1.0, Color32::from_rgb(25, 200, 100)),
-			frame_provider: FrameProvider::NullFrameProvider,
+			frame_provider: Box::new(NullFrameProvider::new(512, 512)),
 			cached_frames: Default::default(),
 			current_frame: 0,
 			display_texture_handle: cc.egui_ctx.load_texture("display_image", ColorImage::example(), TextureOptions::default()),
@@ -60,11 +78,23 @@ impl AutoRoto {
 		}
 	}
 
+	fn set_frame_provider(&mut self, new_frame_provider: Box<dyn FrameProvider>) {
+		self.frame_provider = new_frame_provider;
+		self.current_frame = 0;
+		self.cached_frames.clear();
+		self.display_texture_frame += 1; // HACK: This forces a refresh of the GPU texture from the CPU texture.
+
+		// TODO: Scan all frames instead of just the first.
+		let f = &self.frame_provider.get_frame(0);
+		self.composition_properties.width = f.width() as u64;
+		self.composition_properties.height = f.height() as u64;
+	}
+
 	fn load_and_move_current_frame_to_gpu(&mut self) {
 		if self.current_frame != self.display_texture_frame {
 			if !self.cached_frames.contains_key(&self.current_frame) {
 				// Load and cache the frame.
-				let img = get_frame(&self.frame_provider, self.current_frame as u64);
+				let img = self.frame_provider.get_frame(self.current_frame as u64);
 				self.cached_frames.insert(self.current_frame, img);
 			}
 
@@ -117,8 +147,21 @@ impl AutoRoto {
 		let from_screen = to_screen.inverse();
 
 		self.load_and_move_current_frame_to_gpu();
-		painter.image(self.display_texture_handle.id(), response.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+		// This matches the aspect ratio of the output pane, which isn't quite what we want:
+		//painter.image(self.display_texture_handle.id(), response.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
 		//self.render_frame(ui, egui::Vec2::new(0.0, 0.0));
+		painter.image(
+			self.display_texture_handle.id(),
+			Rect::from_min_max(
+				pos2(0f32, 0f32),
+				pos2(self.composition_properties.width as f32, self.composition_properties.height as f32)
+			),
+			Rect::from_min_max(
+				Pos2::ZERO,
+				Pos2::new(1.0, 1.0)
+			),
+			Color32::WHITE
+		);
 
 		if self.lines.is_empty() {
 			self.lines.push(vec![]);
@@ -158,11 +201,9 @@ impl AutoRoto {
 				let is_web = cfg!(target_arch = "wasm32");
 				ui.menu_button("File", |ui| {
 					if ui.button("Open Image Sequence").clicked() {
-						if let Some(files) = rfd::FileDialog::new().pick_files() {
-							self.frame_provider = FrameProvider::DirectoryFrameProvider(files);
-							self.current_frame = 0;
-							self.cached_frames.clear();
-							self.display_texture_frame += 1; // HACK: This forces a refresh of the GPU texture from the CPU texture.
+						//if let Some(files) = rfd::FileDialog::new().pick_files() {}
+						if let Some(fp) = get_frame_provider(true) {
+							self.set_frame_provider(fp);
 						}
 						ui.close_menu();
 					}
@@ -185,24 +226,14 @@ impl AutoRoto {
 		self.draw_menu(ctx);
 		self.draw_controls(ctx);
 
+		// Main panel:
 		egui::CentralPanel::default().show(ctx, |ui| {
-			// The central panel the region left after adding TopPanel's and SidePanel's
-			ui.heading("eframe template");
+			//ui.label("Write something: ");
+			//ui.text_edit_singleline(&mut self.label);
 
-			ui.horizontal(|ui| {
-				ui.label("Write something: ");
-				//ui.text_edit_singleline(&mut self.label);
+			Frame::canvas(ui.style()).show(ui, |ui| {
+				self.draw_video_frame_with_overlay(ui);
 			});
-
-
-			ui.vertical_centered(|ui| {
-				//ui.add(crate::egui_github_link_file!());
-			});
-
-			self.draw_video_frame_with_overlay(ui);
-			//Frame::canvas(ui.style()).show(ui, |ui| {
-			//	self.draw_video_frame_with_overlay(ui);
-			//});
 
 			ui.separator();
 		});
