@@ -27,12 +27,14 @@ eframe = { version = "0.29", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
 glob = "0.3"
-image = { version = "0.25", features = [] }
+image = { version = "0.25", features = ["rayon"] }
 imageproc = { version = "0.25", features = [] }
 log = "0.4"
+ndarray = "0.16"
 rfd = { version = "0.15" }
 serde = { version = "1", features = ["derive"] }
 tiny-skia = { version = "0.11" }
+video-rs = { version = "0.9", features = ["ndarray"] }
 winit = { version = "0.30", features = ["rwh_05"] }
 winit_input_helper = { version = "0.16" }
 

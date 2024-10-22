@@ -26,7 +26,11 @@ impl NullFrameProvider {
 }
 
 impl FrameProvider for NullFrameProvider {
-	fn get_frame(&mut self, _frame_number: u64) -> RgbaImage {
+	fn get_frame(&mut self, _frame_number: usize) -> RgbaImage {
 		self.cached_frame.clone()
+	}
+
+	fn get_num_frames(&self) -> usize {
+		1
 	}
 }

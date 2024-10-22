@@ -10,10 +10,13 @@ mod null_provider;
 mod video_provider;
 
 pub use null_provider::NullFrameProvider;
+pub use video_provider::VideoFrameProvider;
 pub use image_sequence_provider::ImageSequenceFrameProvider;
 
 pub trait FrameProvider {
-	fn get_frame(&mut self, frame_number: u64) -> RgbaImage;
+	fn get_frame(&mut self, frame_number: usize) -> RgbaImage;
+
+	fn get_num_frames(&self) -> usize;
 }
 
 //	DirectoryFrameProvider(Vec<PathBuf>),
@@ -36,8 +39,7 @@ pub fn get_frame_provider(file_sequence: bool) -> Option<Box<dyn FrameProvider>>
 		}
 	} else {
 		if let Some(file) = FileDialog::new().pick_file() {
-			todo!()
-			//return Some(Box::new(FrameProvider::MovieFrameProvider(file)));
+			return Some(Box::new(VideoFrameProvider::new(file)));
 		}
 	};
 

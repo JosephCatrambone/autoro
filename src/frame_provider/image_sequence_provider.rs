@@ -13,7 +13,7 @@ fn load_image_or_make_default(path: &PathBuf) -> RgbaImage {
 pub struct ImageSequenceFrameProvider {
 	file_list: Vec<PathBuf>,
 	cached_frame: RgbaImage,
-	last_loaded_frame: u64,
+	last_loaded_frame: usize,
 }
 
 impl ImageSequenceFrameProvider {
@@ -28,7 +28,7 @@ impl ImageSequenceFrameProvider {
 }
 
 impl FrameProvider for ImageSequenceFrameProvider {
-	fn get_frame(&mut self, frame_number: u64) -> RgbaImage {
+	fn get_frame(&mut self, frame_number: usize) -> RgbaImage {
 		/*
 			for entry in dir_glob.expect("Failed to read glob pattern") {
 				match entry {
@@ -39,9 +39,13 @@ impl FrameProvider for ImageSequenceFrameProvider {
 			*/
 		if frame_number != self.last_loaded_frame {
 			//let img2 = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?;
-			self.cached_frame = load_image_or_make_default(&self.file_list[frame_number as usize]);
+			self.cached_frame = load_image_or_make_default(&self.file_list[frame_number]);
 			self.last_loaded_frame = frame_number;
 		}
 		self.cached_frame.clone()
+	}
+
+	fn get_num_frames(&self) -> usize {
+		self.file_list.len()
 	}
 }

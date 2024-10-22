@@ -92,16 +92,19 @@ impl AutoRoto {
 
 	fn load_and_move_current_frame_to_gpu(&mut self) {
 		if self.current_frame != self.display_texture_frame {
+			/*
 			if !self.cached_frames.contains_key(&self.current_frame) {
 				// Load and cache the frame.
-				let img = self.frame_provider.get_frame(self.current_frame as u64);
+				let img = self.frame_provider.get_frame(self.current_frame);
 				self.cached_frames.insert(self.current_frame, img);
 			}
 
 			let cached_frame_ref = self.cached_frames.get(&self.current_frame).expect("CANNOT FETCH BACK FRAME JUST ADDED TO LIST.");
+			*/
+			let cached_frame_ref = self.frame_provider.get_frame(self.current_frame);
 
 			self.display_texture_handle.set(
-				image_to_egui_image(cached_frame_ref),
+				image_to_egui_image(&dcached_frame_ref),
 				self.display_texture_options
 			);
 			self.display_texture_frame = self.current_frame;
@@ -200,6 +203,12 @@ impl AutoRoto {
 			egui::menu::bar(ui, |ui| {
 				let is_web = cfg!(target_arch = "wasm32");
 				ui.menu_button("File", |ui| {
+					if ui.button("Open Movie Clip").clicked() {
+						if let Some(fp) = get_frame_provider(false) {
+							self.set_frame_provider(fp);
+						}
+						ui.close_menu();
+					}
 					if ui.button("Open Image Sequence").clicked() {
 						//if let Some(files) = rfd::FileDialog::new().pick_files() {}
 						if let Some(fp) = get_frame_provider(true) {
@@ -245,15 +254,19 @@ impl AutoRoto {
 				ui.horizontal_centered(|ui| {
 					if ui.button("<<").clicked() {
 						self.current_frame = 0;
+						println!("Current Frame: {}", &self.current_frame);
 					}
 					if ui.button("<").clicked() || ctx.input(|i| i.key_released(egui::Key::A)) {
 						self.current_frame = self.current_frame.saturating_sub(1);
+						println!("Current Frame: {}", &self.current_frame);
 					}
 					if ui.button(">").clicked() || ctx.input(|i| i.key_released(egui::Key::D)) {
-						self.current_frame = self.current_frame.saturating_add(1);
+						self.current_frame = self.current_frame.saturating_add(1).min(self.frame_provider.get_num_frames().saturating_sub(1));
+						println!("Current Frame: {}", &self.current_frame);
 					}
 					if ui.button(">>").clicked() {
-						self.current_frame = 0;
+						self.current_frame = self.frame_provider.get_num_frames().saturating_sub(1);
+						println!("Current Frame: {}", &self.current_frame);
 					}
 				});
 			});
@@ -273,6 +286,7 @@ impl eframe::App for AutoRoto {
 
 fn main() -> eframe::Result {
 	env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+	video_rs::init().unwrap();
 
 	let native_options = eframe::NativeOptions {
 		viewport: egui::ViewportBuilder::default()
