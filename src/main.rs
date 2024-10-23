@@ -104,7 +104,7 @@ impl AutoRoto {
 			let cached_frame_ref = self.frame_provider.get_frame(self.current_frame);
 
 			self.display_texture_handle.set(
-				image_to_egui_image(&dcached_frame_ref),
+				image_to_egui_image(&cached_frame_ref),
 				self.display_texture_options
 			);
 			self.display_texture_frame = self.current_frame;
