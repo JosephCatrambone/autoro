@@ -3,11 +3,18 @@ name = "autoro"
 version = "0.1.0"
 edition = "2021"
 
+#On *nix systems, clang, pkg-config and FFmpeg libraries (including development headers) are required.
+# On macOS: brew install pkg-config ffmpeg
+# On Debian-based systems: apt install -y clang libavcodec-dev libavformat-dev libavutil-dev pkg-config
+# On Windows: vcpkg install ffmpeg:x64-windows
+
+
 #[lib]
 #name = "masktool"
 #path = "src/lib.rs"
 
-#[features]
+[features]
+default = []
 #eg = ["dep:egui", "dep:eframe"]
 #pg = ["dep:pixels", "dep:tiny-skia", "dep:winit", "dep:winit_input_helper"]
 
@@ -35,7 +42,6 @@ rfd = { version = "0.15" }
 serde = { version = "1", features = ["derive"] }
 tiny-skia = { version = "0.11" }
 video-rs = { version = "0.9", features = ["ndarray"] }
-winit = { version = "0.30", features = ["rwh_05"] }
 winit_input_helper = { version = "0.16" }
 
 # native:
@@ -46,6 +52,15 @@ env_logger = "0.11"
 #[target.'cfg(target_arch = "wasm32")'.dependencies]
 #wasm-bindgen-futures = "0.4"
 #web-sys = "0.3.70" # to access the DOM (to hide the loading text)
+
+[target.'cfg(unix)'.dependencies]
+winit = { version = "0.29", features = ["x11"] }
+
+[target.'cfg(windows)'.dependencies]
+winit = { version = "0.30", features = ["rwh_05"] }
+
+#[target.'cfg(target_os = "windows")'.features]
+#default  = []
 
 [profile.release]
 opt-level = 2 # fast and small wasm
